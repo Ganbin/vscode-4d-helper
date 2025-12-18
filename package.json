@@ -1,0 +1,94 @@
+{
+  "name": "4d-helper",
+  "displayName": "4D Helper",
+  "description": "Helper tools for 4D development - Open projects with different 4D versions",
+  "version": "0.1.0",
+  "publisher": "ganbin",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ganbin/vscode-4d-helper"
+  },
+  "bugs": {
+    "url": "https://github.com/ganbin/vscode-4d-helper/issues"
+  },
+  "homepage": "https://github.com/ganbin/vscode-4d-helper#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "keywords": [
+    "4D",
+    "4D database",
+    "4D development",
+    "project launcher"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "4d-helper.openProject",
+        "title": "Open 4D Project",
+        "category": "4D"
+      },
+      {
+        "command": "4d-helper.addVersion",
+        "title": "Add Version",
+        "category": "4D"
+      },
+      {
+        "command": "4d-helper.removeVersion",
+        "title": "Remove Version",
+        "category": "4D"
+      }
+    ],
+    "configuration": {
+      "title": "4D Helper",
+      "properties": {
+        "4d-helper.applications": {
+          "type": "array",
+          "default": [],
+          "description": "List of 4D applications available to open projects with",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name for the 4D application (e.g., '4D v20 R8')"
+              },
+              "path": {
+                "type": "string",
+                "description": "Full path to the 4D application"
+              }
+            },
+            "required": ["name", "path"]
+          }
+        },
+        "4d-helper.selectedProject": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Path to the selected 4D project file (automatically set when multiple projects are found)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  }
+}
