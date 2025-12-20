@@ -2,10 +2,10 @@
   "name": "4d-helper",
   "displayName": "4D Helper",
   "description": "Helper tools for 4D development - Open projects with different 4D versions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ganbin",
   "license": "MIT",
-  "icon": "images/icon.png",
+  "icon": "images/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/ganbin/vscode-4d-helper"
@@ -65,7 +65,10 @@
                 "description": "Full path to the 4D application"
               }
             },
-            "required": ["name", "path"]
+            "required": [
+              "name",
+              "path"
+            ]
           }
         },
         "4d-helper.selectedProject": {
