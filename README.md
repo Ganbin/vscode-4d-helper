@@ -80,6 +80,8 @@ Before using the extension, configure your 4D applications in VSCode settings.
 
 ## Usage
 
+### Opening a Project
+
 1. Open a folder containing a 4D project in VSCode
 
 2. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
@@ -101,6 +103,27 @@ Before using the extension, configure your 4D applications in VSCode settings.
    | **Headless** | Run without the 4D GUI |
 
 6. The extension launches 4D with your project and selected options
+
+### Managing 4D Versions
+
+Instead of manually editing the JSON configuration, you can use the built-in commands to manage your 4D versions:
+
+#### Adding a 4D Version
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Run the command: **4D: Add Version**
+3. Browse and select your 4D application (.app on macOS, .exe on Windows)
+4. Enter a display name for this version (defaults to the application name)
+5. Choose where to save the configuration:
+   - **User Settings** - Available in all workspaces
+   - **Workspace Settings** - Only available in the current workspace
+
+#### Removing a 4D Version
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Run the command: **4D: Remove Version**
+3. Select the version you want to remove from the list
+4. Confirm the removal
 
 ### Multiple Projects in Workspace
 
