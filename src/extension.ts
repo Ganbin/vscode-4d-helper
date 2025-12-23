@@ -2,6 +2,32 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { find4DProjectFile, FourDProjectFile } from './utils/projectFinder';
 import { open4DProject, LaunchOptions, setOutputChannel } from './utils/launcher';
+import {
+  checkPort,
+  scanSubnetUDP,
+  getLocalNetworkInfo,
+  ServerScanResult,
+  Server4DScanResult,
+  getDefault4DPorts,
+  discover4DServer
+} from './utils/serverScanner';
+import {
+  Server4D,
+  Server4DWithStatus,
+  getSavedServers,
+  addServer,
+  removeServer,
+  getScanSettings,
+  generate4DLink,
+  cleanupOld4DLinks,
+  is4DClient,
+  generateServerName,
+  getScanCache,
+  setScanCache,
+  clearScanCache,
+  isScanCacheStale,
+  getScanCacheAge
+} from './utils/serverManager';
 
 // Output channel for logging
 let outputChannel: vscode.OutputChannel;
@@ -450,6 +476,728 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(addVersionCommand);
   context.subscriptions.push(removeVersionCommand);
+
+  // ============================================
+  // Server Connection Commands
+  // ============================================
+
+  const connectToServerCommand = vscode.commands.registerCommand(
+    '4d-helper.connectToServer',
+    async () => {
+      outputChannel.show(true);
+      outputChannel.appendLine('=== 4D Helper: Connect to Server Command Started ===');
+      outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
+
+      // Clean up old temp files
+      cleanupOld4DLinks(); // Don't await - run in background
+
+      const scanSettings = getScanSettings();
+
+      // Define item types for the QuickPick
+      interface ServerQuickPickItem extends vscode.QuickPickItem {
+        server?: Server4DWithStatus;
+        isSaved?: boolean;
+        isDiscovered?: boolean;
+        isAction?: boolean;
+        actionId?: string;
+      }
+
+      // Create QuickPick immediately
+      const quickPick = vscode.window.createQuickPick<ServerQuickPickItem>();
+      quickPick.title = 'Connect to 4D Server';
+      quickPick.busy = true;
+
+      // Track state
+      const savedServers = getSavedServers();
+      const savedServersStatus: Map<string, Server4DWithStatus> = new Map();
+      const discoveredServers: Map<string, Server4DWithStatus> = new Map();
+      let scanComplete = false;
+      let isScanning = false;
+
+      // Helper to generate unique key for a server
+      const serverKey = (host: string, port: number) => `${host}:${port}`;
+
+      // Helper to check if server is in saved list
+      const isSavedServer = (host: string, port: number) =>
+        savedServers.some(s => s.host === host && s.port === port);
+
+      // Helper to rebuild QuickPick items while preserving selection
+      const rebuildItems = () => {
+        const currentActiveLabel = quickPick.activeItems[0]?.label;
+        const items: ServerQuickPickItem[] = [];
+
+        // Saved servers section
+        if (savedServers.length > 0) {
+          items.push({ label: 'Saved Servers', kind: vscode.QuickPickItemKind.Separator });
+
+          for (const server of savedServers) {
+            const key = serverKey(server.host, server.port);
+            const status = savedServersStatus.get(key);
+
+            const isOnline = status?.isOnline ?? false;
+            const responseTime = status?.responseTime;
+            const statusIcon = status === undefined
+              ? '$(loading~spin)'
+              : (isOnline ? '$(circle-filled)' : '$(circle-outline)');
+            const statusText = status === undefined
+              ? 'Checking...'
+              : (isOnline ? `Online${responseTime ? ` (${responseTime}ms)` : ''}` : 'Offline');
+
+            // Get discovery info from status check or from discovered servers
+            const discoveryInfo = status?.discoveryInfo || discoveredServers.get(key)?.discoveryInfo;
+            const detectedPorts = status?.detectedPorts || discoveredServers.get(key)?.detectedPorts;
+            const portsInfo = detectedPorts && detectedPorts.length > 1
+              ? ` · ports: ${detectedPorts.join(', ')}`
+              : '';
+
+            // Show database name from discovery if available
+            const dbInfo = discoveryInfo ? ` - ${discoveryInfo.database}` : '';
+
+            items.push({
+              label: `${statusIcon} ${server.name}${dbInfo}`,
+              description: statusText,
+              detail: `${server.host}:${server.port}${portsInfo}`,
+              server: { ...server, isOnline, responseTime, detectedPorts, discoveryInfo },
+              isSaved: true
+            });
+          }
+        }
+
+        // Discovered servers section (exclude ones that are already saved)
+        const newDiscovered = Array.from(discoveredServers.values())
+          .filter(s => !isSavedServer(s.host, s.port));
+
+        if (newDiscovered.length > 0) {
+          const cacheAge = getScanCacheAge();
+          const sectionLabel = cacheAge ? `Discovered on Network (${cacheAge})` : 'Discovered on Network';
+          items.push({ label: sectionLabel, kind: vscode.QuickPickItemKind.Separator });
+
+          for (const server of newDiscovered) {
+            const info = server.discoveryInfo;
+            const portsInfo = server.detectedPorts && server.detectedPorts.length > 1
+              ? `ports: ${server.detectedPorts.join(', ')}`
+              : undefined;
+
+            // Use database name as label if available, otherwise IP:port
+            const label = info
+              ? `$(database) ${info.database}`
+              : `$(server) ${server.host}:${server.port}`;
+
+            // Use hostname as description if available
+            const description = info ? info.host : undefined;
+
+            // Detail shows IP:port and related ports
+            const detailParts = [`${server.host}:${server.port}`];
+            if (portsInfo) {
+              detailParts.push(portsInfo);
+            }
+
+            items.push({
+              label,
+              description,
+              detail: detailParts.join(' · '),
+              server,
+              isDiscovered: true
+            });
+          }
+        }
+
+        // Scanning indicator
+        if (isScanning && !scanComplete) {
+          items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+          items.push({
+            label: '$(sync~spin) Scanning network...',
+            description: `Ports ${scanSettings.portStart}-${scanSettings.portEnd}`,
+            alwaysShow: true
+          });
+        }
+
+        // Actions
+        items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+
+        // Rescan button - show when not scanning
+        if (!isScanning || scanComplete) {
+          const cacheAge = getScanCacheAge();
+          items.push({
+            label: '$(refresh) Rescan Network',
+            description: cacheAge ? `Last scan: ${cacheAge}` : 'Scan for servers',
+            isAction: true,
+            actionId: 'rescan'
+          });
+        }
+
+        items.push({
+          label: '$(add) Add Server Manually...',
+          description: 'Enter IP and port',
+          isAction: true,
+          actionId: 'add'
+        });
+
+        quickPick.items = items;
+
+        // Restore selection
+        if (currentActiveLabel) {
+          const sameItem = items.find(item => item.label === currentActiveLabel);
+          if (sameItem) {
+            quickPick.activeItems = [sameItem];
+          }
+        }
+      };
+
+      // Function to start network scan using UDP discovery
+      const startScan = () => {
+        if (isScanning) return;
+
+        isScanning = true;
+        scanComplete = false;
+        quickPick.busy = true;
+        quickPick.placeholder = 'Select a server to connect to (scanning network...)';
+        discoveredServers.clear();
+        rebuildItems();
+
+        outputChannel.appendLine('Starting UDP discovery scan...');
+        const ports = getDefault4DPorts(scanSettings.portStart, scanSettings.portEnd);
+
+        scanSubnetUDP(
+          ports,
+          scanSettings.timeout,
+          30,
+          (scanned, total, found) => {
+            // Update discovered servers from UDP results
+            for (const result of found) {
+              const key = serverKey(result.host, result.port);
+              if (!discoveredServers.has(key)) {
+                discoveredServers.set(key, {
+                  name: generateServerName(result.host, result.port, result.discoveryInfo),
+                  host: result.host,
+                  port: result.port,
+                  isOnline: true,
+                  responseTime: result.responseTime,
+                  detectedPorts: result.relatedPorts,
+                  discoveryInfo: result.discoveryInfo
+                });
+              }
+            }
+
+            const percent = Math.round((scanned / total) * 100);
+            quickPick.placeholder = `Select a server (scanning: ${percent}%)`;
+            rebuildItems();
+          }
+        ).then(() => {
+          scanComplete = true;
+          isScanning = false;
+          quickPick.busy = false;
+          quickPick.placeholder = 'Select a server to connect to';
+          outputChannel.appendLine(`Scan complete. Found ${discoveredServers.size} server(s).`);
+
+          // Save to cache
+          setScanCache(Array.from(discoveredServers.values()), new Map());
+          rebuildItems();
+        }).catch(err => {
+          scanComplete = true;
+          isScanning = false;
+          quickPick.busy = false;
+          quickPick.placeholder = 'Select a server to connect to';
+          outputChannel.appendLine(`Scan error: ${err.message}`);
+          rebuildItems();
+        });
+      };
+
+      // Load from cache if available and not stale
+      const cache = getScanCache();
+      if (cache && !isScanCacheStale(scanSettings.cacheTimeout)) {
+        outputChannel.appendLine(`Using cached scan results (${getScanCacheAge()})`);
+        for (const server of cache.servers) {
+          discoveredServers.set(serverKey(server.host, server.port), server);
+        }
+        scanComplete = true;
+        quickPick.busy = false;
+        quickPick.placeholder = 'Select a server to connect to';
+      } else {
+        // Start fresh scan
+        startScan();
+      }
+
+      // Initial render
+      rebuildItems();
+      quickPick.show();
+
+      // Start checking saved servers status in background using UDP discovery
+      outputChannel.appendLine(`Checking ${savedServers.length} saved servers...`);
+      for (const server of savedServers) {
+        // Use UDP discovery to get both status and server info
+        discover4DServer(server.host, server.port, scanSettings.timeout).then(async (info) => {
+          const key = serverKey(server.host, server.port);
+
+          if (info) {
+            // Server responded to UDP - it's online and we have info
+            // Also check related ports via TCP
+            const relatedPorts: number[] = [];
+            for (let offset = -2; offset <= 2; offset++) {
+              const relatedPort = server.port + offset;
+              if (relatedPort > 0 && relatedPort <= 65535) {
+                const result = await checkPort(server.host, relatedPort, scanSettings.timeout);
+                if (result.isOpen) {
+                  relatedPorts.push(relatedPort);
+                }
+              }
+            }
+
+            savedServersStatus.set(key, {
+              ...server,
+              isOnline: true,
+              discoveryInfo: info,
+              detectedPorts: relatedPorts.sort((a, b) => a - b)
+            });
+          } else {
+            // UDP failed, try TCP as fallback
+            const result = await checkPort(server.host, server.port, scanSettings.timeout);
+            savedServersStatus.set(key, {
+              ...server,
+              isOnline: result.isOpen,
+              responseTime: result.responseTime
+            });
+          }
+
+          rebuildItems();
+        });
+      }
+
+      // Handle selection
+      const selectedItem = await new Promise<ServerQuickPickItem | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+          const selected = quickPick.selectedItems[0];
+
+          // Handle rescan action without closing
+          if (selected?.isAction && selected.actionId === 'rescan') {
+            clearScanCache();
+            startScan();
+            return;
+          }
+
+          quickPick.hide();
+          resolve(selected);
+        });
+        quickPick.onDidHide(() => {
+          quickPick.dispose();
+          resolve(undefined);
+        });
+      });
+
+      if (!selectedItem) {
+        outputChannel.appendLine('User cancelled server selection');
+        return;
+      }
+
+      // Handle add action
+      if (selectedItem.isAction && selectedItem.actionId === 'add') {
+        vscode.commands.executeCommand('4d-helper.addServer');
+        return;
+      }
+
+      const selectedServer = selectedItem.server;
+      if (!selectedServer) {
+        return;
+      }
+
+      // Check if offline and confirm
+      if (!selectedServer.isOnline) {
+        const proceed = await vscode.window.showWarningMessage(
+          `Server "${selectedServer.name}" appears to be offline. Try to connect anyway?`,
+          'Yes',
+          'No'
+        );
+        if (proceed !== 'Yes') {
+          return;
+        }
+      }
+
+      outputChannel.appendLine(`Selected server: ${selectedServer.name} (${selectedServer.host}:${selectedServer.port})`);
+
+      // Select 4D client application (filter out servers)
+      const config = vscode.workspace.getConfiguration('4d-helper');
+      const applications = config.get<FourDApplication[]>('applications', []);
+
+      if (applications.length === 0) {
+        const openSettings = 'Open Settings';
+        const result = await vscode.window.showWarningMessage(
+          'No 4D applications configured. Please add applications in settings.',
+          openSettings
+        );
+        if (result === openSettings) {
+          vscode.commands.executeCommand('workbench.action.openSettings', '4d-helper.applications');
+        }
+        return;
+      }
+
+      // Filter to only show client applications
+      const clientApps: FourDApplication[] = [];
+      for (const app of applications) {
+        const isClient = await is4DClient(app.path);
+        if (isClient) {
+          clientApps.push(app);
+        }
+      }
+
+      if (clientApps.length === 0) {
+        vscode.window.showWarningMessage(
+          'No 4D client applications found. Only 4D Server applications are configured.'
+        );
+        return;
+      }
+
+      const appItems = clientApps.map(app => ({
+        label: app.name,
+        description: app.path,
+        path: app.path
+      }));
+
+      const selectedApp = await vscode.window.showQuickPick(appItems, {
+        placeHolder: 'Select a 4D client application',
+        title: 'Connect to 4D Server - Select Client'
+      });
+
+      if (!selectedApp) {
+        outputChannel.appendLine('User cancelled app selection');
+        return;
+      }
+
+      outputChannel.appendLine(`Selected client: ${selectedApp.label}`);
+
+      // Generate 4DLink file and launch
+      try {
+        const linkPath = await generate4DLink(selectedServer);
+        outputChannel.appendLine(`Generated 4DLink file: ${linkPath}`);
+
+        await open4DProject(selectedApp.path, linkPath, {});
+
+        vscode.window.showInformationMessage(
+          `Connecting to ${selectedServer.name} with ${selectedApp.label}`
+        );
+
+        // If this was a discovered server (not saved), offer to save it
+        if (selectedItem.isDiscovered) {
+          const saveChoice = await vscode.window.showInformationMessage(
+            `Save "${selectedServer.host}:${selectedServer.port}" for quick access?`,
+            'Save',
+            'No thanks'
+          );
+
+          if (saveChoice === 'Save') {
+            const name = await vscode.window.showInputBox({
+              prompt: 'Enter a display name for this server',
+              value: selectedServer.name,
+              validateInput: (value) => {
+                if (!value || value.trim().length === 0) {
+                  return 'Name cannot be empty';
+                }
+                return null;
+              }
+            });
+
+            if (name) {
+              try {
+                await addServer({
+                  name: name.trim(),
+                  host: selectedServer.host,
+                  port: selectedServer.port
+                });
+                vscode.window.showInformationMessage(`Server "${name.trim()}" saved`);
+              } catch (err) {
+                // Already exists, ignore
+              }
+            }
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        outputChannel.appendLine(`Error: ${message}`);
+        vscode.window.showErrorMessage(`Failed to connect: ${message}`);
+      }
+    }
+  );
+
+  const addServerCommand = vscode.commands.registerCommand(
+    '4d-helper.addServer',
+    async () => {
+      outputChannel.appendLine('=== 4D Helper: Add Server Command Started ===');
+
+      // Ask for host
+      const host = await vscode.window.showInputBox({
+        prompt: 'Enter the server IP address or hostname',
+        placeHolder: '192.168.1.100 or server.example.com',
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) {
+            return 'Host cannot be empty';
+          }
+          return null;
+        }
+      });
+
+      if (!host) {
+        return;
+      }
+
+      // Ask for port
+      const scanSettings = getScanSettings();
+      const portStr = await vscode.window.showInputBox({
+        prompt: 'Enter the server port',
+        value: String(scanSettings.defaultPort),
+        validateInput: (value) => {
+          const port = parseInt(value, 10);
+          if (isNaN(port) || port < 1 || port > 65535) {
+            return 'Port must be a number between 1 and 65535';
+          }
+          return null;
+        }
+      });
+
+      if (!portStr) {
+        return;
+      }
+
+      const port = parseInt(portStr, 10);
+
+      // Check if server is reachable
+      outputChannel.appendLine(`Checking ${host}:${port}...`);
+      const result = await checkPort(host.trim(), port, scanSettings.timeout);
+
+      if (!result.isOpen) {
+        const proceed = await vscode.window.showWarningMessage(
+          `No 4D server detected at ${host}:${port}. Add anyway?`,
+          'Yes',
+          'No'
+        );
+        if (proceed !== 'Yes') {
+          return;
+        }
+      }
+
+      // Ask for name
+      const defaultName = generateServerName(host.trim(), port);
+      const name = await vscode.window.showInputBox({
+        prompt: 'Enter a display name for this server',
+        value: defaultName,
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) {
+            return 'Name cannot be empty';
+          }
+          return null;
+        }
+      });
+
+      if (!name) {
+        return;
+      }
+
+      // Save server
+      try {
+        await addServer({
+          name: name.trim(),
+          host: host.trim(),
+          port
+        });
+
+        vscode.window.showInformationMessage(`Server "${name.trim()}" added successfully`);
+        outputChannel.appendLine(`Server added: ${name.trim()} (${host.trim()}:${port})`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        vscode.window.showErrorMessage(`Failed to add server: ${message}`);
+      }
+    }
+  );
+
+  const removeServerCommand = vscode.commands.registerCommand(
+    '4d-helper.removeServer',
+    async () => {
+      outputChannel.appendLine('=== 4D Helper: Remove Server Command Started ===');
+
+      const servers = getSavedServers();
+
+      if (servers.length === 0) {
+        vscode.window.showInformationMessage('No servers configured. Nothing to remove.');
+        return;
+      }
+
+      const items = servers.map(server => ({
+        label: server.name,
+        description: `${server.host}:${server.port}`,
+        server
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a server to remove',
+        title: 'Remove 4D Server'
+      });
+
+      if (!selected) {
+        return;
+      }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Are you sure you want to remove "${selected.label}"?`,
+        { modal: true },
+        'Remove',
+        'Cancel'
+      );
+
+      if (confirm !== 'Remove') {
+        return;
+      }
+
+      try {
+        await removeServer(selected.server.host, selected.server.port);
+        vscode.window.showInformationMessage(`Server "${selected.label}" removed`);
+        outputChannel.appendLine(`Server removed: ${selected.label}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        vscode.window.showErrorMessage(`Failed to remove server: ${message}`);
+      }
+    }
+  );
+
+  const scanServersCommand = vscode.commands.registerCommand(
+    '4d-helper.scanServers',
+    async () => {
+      outputChannel.show(true);
+      outputChannel.appendLine('=== 4D Helper: Scan Servers Command Started ===');
+      outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
+
+      const networkInfo = getLocalNetworkInfo();
+      if (!networkInfo) {
+        vscode.window.showErrorMessage('Could not determine local network information');
+        return;
+      }
+
+      outputChannel.appendLine(`Local IP: ${networkInfo.localIp}`);
+      outputChannel.appendLine(`Subnet: ${networkInfo.networkAddress}/${networkInfo.netmask}`);
+
+      const scanSettings = getScanSettings();
+      const ports = getDefault4DPorts(scanSettings.portStart, scanSettings.portEnd);
+
+      outputChannel.appendLine(`Scanning ports ${scanSettings.portStart}-${scanSettings.portEnd}`);
+
+      // Show progress
+      const foundServers: Server4DScanResult[] = [];
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Scanning for 4D Servers',
+          cancellable: true
+        },
+        async (progress, token) => {
+          return new Promise<void>((resolve) => {
+            let cancelled = false;
+
+            token.onCancellationRequested(() => {
+              cancelled = true;
+              resolve();
+            });
+
+            scanSubnetUDP(
+              ports,
+              scanSettings.timeout,
+              30, // batch size
+              (scanned: number, total: number, found: Server4DScanResult[]) => {
+                if (cancelled) {
+                  return;
+                }
+
+                const percent = Math.round((scanned / total) * 100);
+                progress.report({
+                  message: `${percent}% - Found ${found.length} servers`,
+                  increment: (1 / total) * 100
+                });
+
+                foundServers.length = 0;
+                foundServers.push(...found);
+              }
+            ).then(() => {
+              if (!cancelled) {
+                resolve();
+              }
+            }).catch((err: Error) => {
+              outputChannel.appendLine(`Scan error: ${err.message}`);
+              resolve();
+            });
+          });
+        }
+      );
+
+      outputChannel.appendLine(`Scan complete. Found ${foundServers.length} servers.`);
+
+      if (foundServers.length === 0) {
+        vscode.window.showInformationMessage('No 4D servers found on the network.');
+        return;
+      }
+
+      // Show results and let user select which to add
+      interface ServerQuickPickItem extends vscode.QuickPickItem {
+        host: string;
+        port: number;
+        discoveryInfo?: import('./utils/serverScanner').Server4DDiscoveryInfo;
+      }
+
+      const items: ServerQuickPickItem[] = [];
+
+      for (const server of foundServers) {
+        const info = server.discoveryInfo;
+        const portsInfo = server.relatedPorts && server.relatedPorts.length > 1
+          ? `ports: ${server.relatedPorts.join(', ')}`
+          : undefined;
+
+        items.push({
+          label: info ? `$(database) ${info.database}` : `$(server) ${server.host}:${server.port}`,
+          description: info ? info.host : undefined,
+          detail: [`${server.host}:${server.port}`, portsInfo].filter(Boolean).join(' · '),
+          host: server.host,
+          port: server.port,
+          discoveryInfo: info
+        });
+      }
+
+      const quickPick = vscode.window.createQuickPick<ServerQuickPickItem>();
+      quickPick.title = 'Found 4D Servers';
+      quickPick.placeholder = 'Select servers to add to your saved list';
+      quickPick.canSelectMany = true;
+      quickPick.items = items;
+
+      quickPick.onDidAccept(async () => {
+        const selected = quickPick.selectedItems;
+        quickPick.hide();
+
+        if (selected.length === 0) {
+          return;
+        }
+
+        let added = 0;
+        for (const item of selected) {
+          const name = generateServerName(item.host, item.port, item.discoveryInfo);
+          try {
+            await addServer({ name, host: item.host, port: item.port });
+            added++;
+            outputChannel.appendLine(`Added server: ${name}`);
+          } catch {
+            // Server already exists, skip
+            outputChannel.appendLine(`Server ${item.host}:${item.port} already exists, skipping`);
+          }
+        }
+
+        if (added > 0) {
+          vscode.window.showInformationMessage(`Added ${added} server${added > 1 ? 's' : ''}`);
+        }
+      });
+
+      quickPick.onDidHide(() => quickPick.dispose());
+      quickPick.show();
+    }
+  );
+
+  context.subscriptions.push(connectToServerCommand);
+  context.subscriptions.push(addServerCommand);
+  context.subscriptions.push(removeServerCommand);
+  context.subscriptions.push(scanServersCommand);
 }
 
 /**

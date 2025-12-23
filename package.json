@@ -2,7 +2,7 @@
   "name": "4d-helper",
   "displayName": "4D Helper",
   "description": "Helper tools for 4D development - Open projects with different 4D versions",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "ganbin",
   "license": "MIT",
   "icon": "images/logo.png",
@@ -44,6 +44,26 @@
         "command": "4d-helper.removeVersion",
         "title": "Remove Version",
         "category": "4D"
+      },
+      {
+        "command": "4d-helper.connectToServer",
+        "title": "Connect to 4D Server",
+        "category": "4D"
+      },
+      {
+        "command": "4d-helper.addServer",
+        "title": "Add Server",
+        "category": "4D"
+      },
+      {
+        "command": "4d-helper.removeServer",
+        "title": "Remove Server",
+        "category": "4D"
+      },
+      {
+        "command": "4d-helper.scanServers",
+        "title": "Scan for 4D Servers",
+        "category": "4D"
       }
     ],
     "configuration": {
@@ -76,6 +96,58 @@
           "default": "",
           "scope": "resource",
           "description": "Path to the selected 4D project file (automatically set when multiple projects are found)"
+        },
+        "4d-helper.servers": {
+          "type": "array",
+          "default": [],
+          "description": "List of saved 4D servers to connect to",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name for the server"
+              },
+              "host": {
+                "type": "string",
+                "description": "IP address or hostname of the server"
+              },
+              "port": {
+                "type": "number",
+                "description": "Port number (default: 19813)"
+              }
+            },
+            "required": [
+              "name",
+              "host",
+              "port"
+            ]
+          }
+        },
+        "4d-helper.serverScan.portRange.start": {
+          "type": "number",
+          "default": 19800,
+          "description": "Start of port range to scan for 4D servers"
+        },
+        "4d-helper.serverScan.portRange.end": {
+          "type": "number",
+          "default": 19899,
+          "description": "End of port range to scan for 4D servers"
+        },
+        "4d-helper.serverScan.timeout": {
+          "type": "number",
+          "default": 500,
+          "description": "Connection timeout in milliseconds when scanning for servers"
+        },
+        "4d-helper.serverScan.defaultPort": {
+          "type": "number",
+          "default": 19813,
+          "description": "Default port for 4D Server connections"
+        },
+        "4d-helper.serverScan.cacheTimeout": {
+          "type": "number",
+          "default": 120,
+          "description": "Time in seconds before cached scan results are considered stale and auto-refresh (default: 120 = 2 minutes)"
         }
       }
     }
