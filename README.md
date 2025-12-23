@@ -1,6 +1,6 @@
 # 4D Helper - VSCode Extension
 
-A VSCode extension that simplifies 4D development by providing an easy way to launch 4D projects with different versions of 4D applications and various launch options.
+A VSCode extension that simplifies 4D development by providing an easy way to launch 4D projects with different versions of 4D applications, connect to 4D servers, and configure various launch options.
 
 > **Note:** This extension was developed for my personal workflow, but I thought it might be useful to others working with 4D. Feel free to use it, and contributions are welcome!
 >
@@ -8,6 +8,7 @@ A VSCode extension that simplifies 4D development by providing an easy way to la
 
 ## Features
 
+### Project Management
 - **Automatic Project Detection** - Recursively finds `.4DProject` files in your workspace
 - **Smart Filtering** - Automatically excludes projects inside `Components`, `Components.src`, or `Components_src` folders
 - **Multiple 4D Versions** - Configure and quickly switch between different 4D application versions
@@ -18,6 +19,16 @@ A VSCode extension that simplifies 4D development by providing an easy way to la
   - Dataless mode
   - Skip On Startup
   - Headless mode
+
+### Server Connection
+- **Network Discovery** - Automatically scan your local network for 4D servers
+- **UDP Discovery Protocol** - Detect servers with database name and hostname information
+- **Server Management** - Save frequently used servers for quick access
+- **Smart Display** - Shows database name, hostname, and all related ports (SQL, App, DB4D, Debugger)
+- **Scan Caching** - Results are cached to avoid rescanning (configurable timeout)
+- **Client Filtering** - Only shows 4D client applications (filters out 4D Server)
+
+### General
 - **Cross-Platform** - Works on macOS and Windows
 
 ## Installation
@@ -128,6 +139,52 @@ Instead of manually editing the JSON configuration, you can use the built-in com
 ### Multiple Projects in Workspace
 
 If your workspace contains multiple 4D projects, the extension will ask you to select one. Your choice is remembered for future launches (stored in workspace settings).
+
+### Connecting to a 4D Server
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+
+2. Run the command: **4D: Connect to 4D Server**
+
+3. The extension automatically scans your network for 4D servers and displays:
+   - **Saved Servers** - Your previously saved servers with online/offline status
+   - **Discovered on Network** - Servers found via UDP discovery showing database name and hostname
+
+4. Select a server to connect to
+
+5. Choose which 4D client application to use (4D Server applications are filtered out)
+
+6. The extension generates a temporary 4DLink file and launches the client
+
+#### Managing Servers
+
+| Command | Description |
+|---------|-------------|
+| **4D: Add Server** | Manually add a server by entering IP/hostname and port |
+| **4D: Remove Server** | Remove a saved server from your list |
+| **4D: Scan for 4D Servers** | Standalone network scan with multi-select to save servers |
+
+#### Server Scan Settings
+
+You can configure the server scanning behavior in your settings:
+
+```json
+{
+  "4d-helper.serverScan.portRange.start": 19800,
+  "4d-helper.serverScan.portRange.end": 19899,
+  "4d-helper.serverScan.timeout": 500,
+  "4d-helper.serverScan.defaultPort": 19813,
+  "4d-helper.serverScan.cacheTimeout": 120
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `portRange.start` | 19800 | Start of port range to scan |
+| `portRange.end` | 19899 | End of port range to scan |
+| `timeout` | 500 | Connection timeout in milliseconds |
+| `defaultPort` | 19813 | Default 4D server port |
+| `cacheTimeout` | 120 | Seconds before cached scan results expire |
 
 ## Requirements
 
