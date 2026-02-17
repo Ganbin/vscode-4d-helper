@@ -6,7 +6,6 @@ import {
   checkPort,
   scanSubnetUDP,
   getLocalNetworkInfo,
-  ServerScanResult,
   Server4DScanResult,
   getDefault4DPorts,
   discover4DServer
@@ -105,8 +104,6 @@ export function activate(context: vscode.ExtensionContext) {
   const openProjectCommand = vscode.commands.registerCommand(
     '4d-helper.openProject',
     async () => {
-      // Show output channel immediately
-      outputChannel.show(true);
       outputChannel.appendLine('=== 4D Helper: Open Project Command Started ===');
       outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
 
@@ -484,7 +481,6 @@ export function activate(context: vscode.ExtensionContext) {
   const connectToServerCommand = vscode.commands.registerCommand(
     '4d-helper.connectToServer',
     async () => {
-      outputChannel.show(true);
       outputChannel.appendLine('=== 4D Helper: Connect to Server Command Started ===');
       outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
 
@@ -1059,7 +1055,6 @@ export function activate(context: vscode.ExtensionContext) {
   const scanServersCommand = vscode.commands.registerCommand(
     '4d-helper.scanServers',
     async () => {
-      outputChannel.show(true);
       outputChannel.appendLine('=== 4D Helper: Scan Servers Command Started ===');
       outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
 

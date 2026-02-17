@@ -2,7 +2,7 @@
   "name": "4d-helper",
   "displayName": "4D Helper",
   "description": "Helper tools for 4D development - Open projects with different 4D versions",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "ganbin",
   "license": "MIT",
   "icon": "images/logo.png",

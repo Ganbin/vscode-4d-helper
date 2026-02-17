@@ -5,6 +5,11 @@ All notable changes to the 4D Helper extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-02-17
+
+### Fixed
+- Output panel no longer steals focus from Terminal when running commands
+
 ## [0.2.0] - 2025-12-23
 
 ### Added
@@ -54,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `4d-helper.applications` - List of configured 4D applications
   - `4d-helper.selectedProject` - Remember selected project in multi-project workspaces
 
+[0.2.1]: https://github.com/ganbin/vscode-4d-helper/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ganbin/vscode-4d-helper/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ganbin/vscode-4d-helper/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ganbin/vscode-4d-helper/releases/tag/v0.1.0
